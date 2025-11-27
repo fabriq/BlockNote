@@ -35,13 +35,22 @@ export const TableExtension = Extension.create({
 
           return true;
         }
-
+        if (
+          this.editor.state.selection.empty &&
+          this.editor.state.selection.$head.parent.type.name === "tableImage"
+        ) {
+          return true;
+        }
         return false;
       },
       // Ensures that backspace won't delete the table if the text cursor is at
       // the start of a cell and the selection is empty.
       Backspace: () => {
         const selection = this.editor.state.selection;
+
+        if (selection.$head.node().type.name === "tableImage") {
+          return false;
+        }
         const selectionIsEmpty = selection.empty;
         const selectionIsAtStartOfNode = selection.$head.parentOffset === 0;
         const selectionIsInTableParagraphNode =

@@ -167,7 +167,7 @@ export const fr: Dictionary = {
         "média",
         "url",
       ],
-      group: "Médias",
+      group: "Média",
     },
     video: {
       title: "Vidéo",

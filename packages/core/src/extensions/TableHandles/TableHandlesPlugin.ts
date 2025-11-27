@@ -1,5 +1,6 @@
 import { EditorState, Plugin, PluginKey, PluginView } from "prosemirror-state";
 import {
+  cellAround,
   CellSelection,
   addColumnAfter,
   addColumnBefore,
@@ -38,8 +39,8 @@ import {
   BlockSchemaWithBlock,
   InlineContentSchema,
   StyleSchema,
-} from "../../schema/index.js";
-import { getDraggableBlockFromElement } from "../getDraggableBlockFromElement.js";
+} from "../../schema/index.ts";
+import { getDraggableBlockFromElement } from "../SideMenu/SideMenuPlugin.ts";
 
 let dragImageElement: HTMLElement | undefined;
 
@@ -150,6 +151,7 @@ export class TableHandlesView<
 > implements PluginView
 {
   public state?: TableHandlesState<I, S>;
+  public resizingTable?: HTMLElement;
   public emitUpdate: () => void;
 
   public tableId: string | undefined;
@@ -180,8 +182,9 @@ export class TableHandlesView<
     };
 
     pmView.dom.addEventListener("mousemove", this.mouseMoveHandler);
-    pmView.dom.addEventListener("mousedown", this.viewMousedownHandler);
-    window.addEventListener("mouseup", this.mouseUpHandler);
+    pmView.dom.addEventListener("mouseup", this.mouseUpHandler);
+    pmView.dom.addEventListener("mousedown", this.mouseDownHandler);
+    pmView.dom.addEventListener("click", this.mouseClickHandler);
 
     pmView.root.addEventListener(
       "dragover",
@@ -597,10 +600,116 @@ export class TableHandlesView<
     this.emitUpdate();
   }
 
+  mouseDownHandler = (event: MouseEvent) => {
+    if (this.state === undefined) {
+      return;
+    }
+
+    if (this.state.block.type !== "table") {
+      return;
+    }
+
+    this.resizingTable = (event.target as any)?.closest("table") || undefined;
+    return;
+  };
+
+  mouseClickHandler = (event: MouseEvent) => {
+    if (this.state === undefined) {
+      return;
+    }
+
+    if (this.state.block.type !== "table") {
+      return;
+    }
+    if ((event.target as any).className === "table-image") {
+      const image = this.editor._tiptapEditor.view.posAtCoords({
+        left: event.clientX,
+        top: event.clientY,
+      })!;
+      const cell = cellAround(
+        this.editor._tiptapEditor.view.state.doc.resolve(image.pos),
+      )!;
+
+      this.editor._tiptapEditor.view.dispatch(
+        this.editor._tiptapEditor.view.state.tr.setSelection(
+          new CellSelection(cell),
+        ),
+      );
+    }
+    return;
+  };
+
+  mouseUpHandler = (event: MouseEvent) => {
+    if (this.state === undefined) {
+      return;
+    }
+
+    event.preventDefault();
+    if (this.state.block.type !== "table" || !this.resizingTable) {
+      return;
+    }
+    const rows = this.state.block.content.rows;
+
+    const cols = this.resizingTable.querySelectorAll("col") ?? [];
+    const colWidth = Array.from(cols).map((col: any) => col.style.width);
+    let columnWidthChanged = false;
+
+    const newRows = rows.map((row) => {
+      return {
+        cells: row.cells.map((cell, index) => {
+          if (cell.length === 0) {
+            if (!colWidth[index]) {
+              return [];
+            }
+            columnWidthChanged = true;
+            return [
+              {
+                type: "text",
+                text: "",
+                width: colWidth[index],
+                styles: {},
+              },
+            ];
+          }
+          return cell.map((c: any) => {
+            if (!colWidth[index]) {
+              return c;
+            }
+            if (c.width !== colWidth[index]) {
+              columnWidthChanged = true;
+            }
+            return {
+              ...c,
+              width: colWidth[index],
+            };
+          });
+        }),
+      };
+    });
+
+    if (!columnWidthChanged) {
+      return;
+    }
+    const savedState = this.state;
+    setTimeout(() => {
+      savedState.block.content.rows = newRows;
+
+      this.editor.updateBlock(savedState.block, {
+        type: "table",
+        content: {
+          type: "tableContent",
+          rows: newRows,
+        },
+      });
+    }, 0);
+  };
+
   destroy() {
     this.pmView.dom.removeEventListener("mousemove", this.mouseMoveHandler);
-    window.removeEventListener("mouseup", this.mouseUpHandler);
-    this.pmView.dom.removeEventListener("mousedown", this.viewMousedownHandler);
+    this.pmView.dom.removeEventListener("mousedown", this.mouseDownHandler);
+    this.pmView.dom.removeEventListener("mouseup", this.mouseUpHandler);
+    this.pmView.dom.addEventListener("click", this.mouseClickHandler);
+
     this.pmView.root.removeEventListener(
       "dragover",
       this.dragOverHandler as EventListener,
